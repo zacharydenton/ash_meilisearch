@@ -228,10 +228,11 @@ defmodule AshMeilisearch.Actions.Search do
 
   # Extract limit from Ash query
   defp get_limit(ash_query) do
-    limit = case ash_query.page do
-      %{limit: limit} -> limit
-      _ -> ash_query.limit || 20
-    end
+    limit =
+      case ash_query.page do
+        %{limit: limit} -> limit
+        _ -> ash_query.limit || 20
+      end
 
     # Ash expects 1 extra result for page.more? calculation
     limit + 1

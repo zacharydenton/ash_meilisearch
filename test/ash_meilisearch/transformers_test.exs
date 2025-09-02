@@ -98,6 +98,48 @@ defmodule AshMeilisearch.TransformersTest do
       refute content_opts[:filterable]
       refute content_opts[:sortable]
     end
+
+    test "merges relationship fields from multiple attribute sets" do
+      # Create a test with overlapping relationship fields
+      field_specs = [
+        # searchable
+        {:author, [:name, :email, :bio]},
+        # filterable  
+        {:author, [:name, :email]},
+        # simple field
+        :title,
+        # another relationship
+        {:category, [:name]}
+      ]
+
+      merged = AshMeilisearch.Transformers.AddSearchDocument.merge_field_specs(field_specs)
+
+      # Should have author with all unique fields merged
+      author_spec =
+        Enum.find(merged, fn
+          {:author, _fields} -> true
+          _ -> false
+        end)
+
+      assert {:author, author_fields} = author_spec
+      assert :name in author_fields
+      assert :email in author_fields
+      # This should be included from searchable
+      assert :bio in author_fields
+      assert length(author_fields) == 3
+
+      # Should preserve simple fields
+      assert :title in merged
+
+      # Should preserve other relationships
+      category_spec =
+        Enum.find(merged, fn
+          {:category, _fields} -> true
+          _ -> false
+        end)
+
+      assert {:category, [:name]} = category_spec
+    end
   end
 
   describe "AddSearchAction transformer" do

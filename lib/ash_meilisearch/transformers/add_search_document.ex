@@ -44,8 +44,8 @@ defmodule AshMeilisearch.Transformers.AddSearchDocument do
     filterable = Keyword.get(meilisearch_config, :filterable_attributes, [])
     sortable = Keyword.get(meilisearch_config, :sortable_attributes, [])
 
-    # Get all unique field specifications from all lists  
-    all_field_specs = (searchable ++ filterable ++ sortable) |> Enum.uniq()
+    # Merge relationship fields and get unique simple fields
+    all_field_specs = merge_field_specs(searchable ++ filterable ++ sortable)
 
     # Get resource info from DSL state
     attributes = get_in(dsl_state, [Access.key([:attributes]), Access.key(:entities)]) || []
@@ -122,6 +122,30 @@ defmodule AshMeilisearch.Transformers.AddSearchDocument do
   defp parse_field_spec(unknown_spec, _) do
     # Handle unknown field specifications gracefully
     {unknown_spec, :unknown, []}
+  end
+
+  @doc false
+  def merge_field_specs(field_specs) do
+    # Group by relationship name or field name
+    field_specs
+    |> Enum.group_by(fn
+      {rel_name, _fields} -> {:relationship, rel_name}
+      field_name -> {:simple, field_name}
+    end)
+    |> Enum.map(fn
+      {{:relationship, rel_name}, specs} ->
+        # Merge all fields for this relationship
+        all_fields =
+          specs
+          |> Enum.flat_map(fn {_, fields} -> fields end)
+          |> Enum.uniq()
+
+        {rel_name, all_fields}
+
+      {{:simple, field_name}, _specs} ->
+        # Simple field, just use the name
+        field_name
+    end)
   end
 
   defp get_primary_key_field(dsl_state) do
