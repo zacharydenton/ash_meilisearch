@@ -5,7 +5,7 @@ if Mix.env() == :test do
   config :ash_meilisearch,
     host: "http://localhost:7700",
     api_key: nil,
-    domains: [AshMeilisearch.Test.Domain]
+    otp_apps: [:ash_meilisearch]
 
   # Ash configuration for tests
   config :ash, :validate_domain_resource_inclusion?, false

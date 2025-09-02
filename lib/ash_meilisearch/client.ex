@@ -27,13 +27,6 @@ defmodule AshMeilisearch.Client do
   end
 
   @doc """
-  Legacy config function for backward compatibility.
-
-  Delegates to the new config/0 function and ignores the app parameter.
-  """
-  def config(_app), do: config()
-
-  @doc """
   Checks Meilisearch server health.
   """
   def health do
@@ -41,8 +34,6 @@ defmodule AshMeilisearch.Client do
 
     Req.get("#{endpoint}/health", headers: headers) |> handle_meilisearch_response()
   end
-
-  def health(_app), do: health()
 
   @doc """
   Indexes documents to a Meilisearch index.
@@ -287,8 +278,8 @@ defmodule AshMeilisearch.Client do
   @doc """
   Deletes all documents in an index.
   """
-  def clear_index(index_name, app \\ nil) do
-    {endpoint, headers} = if app, do: config(app), else: config()
+  def clear_index(index_name) do
+    {endpoint, headers} = config()
     url = "#{endpoint}/indexes/#{index_name}/documents"
 
     Req.delete(url, headers: headers)

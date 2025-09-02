@@ -20,14 +20,14 @@ def deps do
 end
 ```
 
-Configure your Meilisearch connection and domains:
+Configure your Meilisearch connection:
 
 ```elixir
 # config/config.exs
 config :ash_meilisearch,
   host: "http://localhost:7700",
   api_key: nil,  # or your API key
-  domains: [MyApp.Blog, MyApp.Shop]  # List all domains using AshMeilisearch
+  otp_apps: [:my_app]
 ```
 
 ## Add Meilisearch to Resources

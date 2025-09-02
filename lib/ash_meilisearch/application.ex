@@ -47,10 +47,17 @@ defmodule AshMeilisearch.Application do
   end
 
   defp find_meilisearch_resources do
-    # Get domains from configuration
-    domains = Application.get_env(:ash_meilisearch, :domains, [])
+    # Get configured OTP apps
+    otp_apps = Application.get_env(:ash_meilisearch, :otp_apps, [])
 
-    # Get all resources from configured domains
+    # Get all domains from all configured apps
+    domains =
+      otp_apps
+      |> Enum.flat_map(fn app ->
+        Application.get_env(app, :ash_domains, [])
+      end)
+
+    # Get all resources from domains
     domains
     |> Enum.flat_map(fn domain ->
       # Get resources from domain using Ash.Domain.Info

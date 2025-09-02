@@ -112,7 +112,8 @@ defmodule AshMeilisearch.Config do
 
         config :ash_meilisearch,
           host: "http://localhost:7700",
-          api_key: nil  # or your API key
+          api_key: nil,  # or your API key
+          otp_apps: [:my_app]
 
     """
   end
