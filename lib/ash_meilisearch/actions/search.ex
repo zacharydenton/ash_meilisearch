@@ -13,7 +13,7 @@ defmodule AshMeilisearch.Actions.Search do
   require Ash.Query
 
   @impl true
-  def read(ash_query, _ecto_query, _opts, _context) do
+  def read(ash_query, ecto_query, _opts, _context) do
     resource = ash_query.resource
 
     # Get Meilisearch configuration for this resource
@@ -22,20 +22,20 @@ defmodule AshMeilisearch.Actions.Search do
         {:error, "No Meilisearch index configured for #{inspect(resource)}"}
 
       index_name ->
-        perform_search(ash_query, index_name)
+        perform_search(ash_query, index_name, ecto_query)
     end
   end
 
-  defp perform_search(ash_query, index_name) do
+  defp perform_search(ash_query, index_name, ecto_query) do
     query_arg = Map.get(ash_query.arguments, :query)
 
     # Detect if this is single search (string/ci_string) or multisearch (list)
     case normalize_query_arg(query_arg) do
       {:single, search_query} ->
-        perform_single_search(ash_query, index_name, search_query)
+        perform_single_search(ash_query, index_name, search_query, ecto_query)
 
       {:multi, queries} ->
-        perform_multisearch(ash_query, index_name, queries)
+        perform_multisearch(ash_query, index_name, queries, ecto_query)
     end
   end
 
@@ -57,7 +57,7 @@ defmodule AshMeilisearch.Actions.Search do
     end
   end
 
-  defp perform_single_search(ash_query, index_name, search_query) do
+  defp perform_single_search(ash_query, index_name, search_query, ecto_query) do
     # Extract search parameters
     filter_string = build_meilisearch_filter(ash_query)
     sort_array = build_meilisearch_sort(ash_query)
@@ -99,7 +99,7 @@ defmodule AshMeilisearch.Actions.Search do
 
     case AshMeilisearch.Client.search(index_name, search_query, search_opts) do
       {:ok, %{"hits" => hits} = response} ->
-        process_search_results(ash_query, hits, response)
+        process_search_results(ash_query, hits, response, ecto_query)
 
       {:search_error, error} ->
         Logger.error("AshMeilisearch single search failed: #{inspect(error)}")
@@ -111,7 +111,7 @@ defmodule AshMeilisearch.Actions.Search do
     end
   end
 
-  defp perform_multisearch(ash_query, index_name, queries) do
+  defp perform_multisearch(ash_query, index_name, queries, ecto_query) do
     federation_opts = Map.get(ash_query.arguments, :federation, %{})
 
     # Extract pagination from Ash query for federation
@@ -146,7 +146,7 @@ defmodule AshMeilisearch.Actions.Search do
 
     case AshMeilisearch.Client.multisearch(meilisearch_queries, federation: federation_options) do
       {:ok, %{"hits" => hits} = response} ->
-        process_search_results(ash_query, hits, response)
+        process_search_results(ash_query, hits, response, ecto_query)
 
       {:search_error, error} ->
         Logger.error("AshMeilisearch multisearch failed: #{inspect(error)}")
@@ -158,18 +158,25 @@ defmodule AshMeilisearch.Actions.Search do
     end
   end
 
-  defp process_search_results(ash_query, hits, response) do
+  defp process_search_results(ash_query, hits, response, ecto_query) do
     # Extract IDs from Meilisearch results
     ids = Enum.map(hits, & &1["id"])
 
-    # Load actual records using IDs, preserving original query loads
+    # Load actual records using IDs, preserving original query loads from ecto_query
     records =
       if length(ids) > 0 do
-        ash_query.resource
-        |> Ash.Query.new()
-        |> Ash.Query.filter(Ash.Expr.expr(id in ^ids))
-        |> Ash.Query.load(ash_query.load)
-        |> Ash.read!()
+        # Add ID filter to the existing ecto_query to preserve all loads
+        id_filter = Ash.Filter.parse!(ash_query.resource, id: [in: ids])
+
+        with {:ok, filtered_ecto_query} <-
+               Ash.DataLayer.filter(ecto_query, id_filter, ash_query.resource),
+             {:ok, unpaginated_query} <-
+               Ash.DataLayer.offset(filtered_ecto_query, 0, ash_query.resource),
+             {:ok, results} <- Ash.DataLayer.run_query(unpaginated_query, ash_query.resource) do
+          results
+        else
+          _ -> []
+        end
       else
         []
       end

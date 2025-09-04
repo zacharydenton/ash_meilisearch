@@ -158,6 +158,37 @@ defmodule AshMeilisearch.IntegrationTest do
     end
   end
 
+  describe "load option" do
+    test "loads aggregates and calculations in search action" do
+      # Create test data with unique title to avoid conflicts
+      unique_title = "LoadTest#{System.unique_integer([:positive])}"
+
+      {:ok, album} =
+        Album
+        |> Ash.Changeset.for_create(:create, %{title: unique_title, artist: "Test Artist"})
+        |> Ash.create()
+
+      # Ensure index exists and album is indexed
+      :ok = AshMeilisearch.IndexManager.ensure_index(Album)
+      {:ok, _} = album |> Ash.Changeset.for_update(:reindex, %{}) |> Ash.update()
+      Process.sleep(200)
+
+      # Test search with load option
+      {:ok, page} =
+        Album
+        |> Ash.Query.for_read(:search_albums, %{query: unique_title})
+        |> Ash.Query.load([:track_count, :title_length])
+        |> Ash.read()
+
+      assert length(page.results) > 0
+      first_result = List.first(page.results)
+
+      # These should be loaded, not NotLoaded structs
+      refute match?(%Ash.NotLoaded{}, first_result.track_count)
+      refute match?(%Ash.NotLoaded{}, first_result.title_length)
+    end
+  end
+
   describe "validation" do
     test "validates index name is required" do
       assert_raise Spark.Error.DslError, fn ->
