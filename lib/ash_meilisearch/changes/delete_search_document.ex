@@ -30,43 +30,28 @@ defmodule AshMeilisearch.Changes.DeleteSearchDocument do
   defp delete_search_document(changeset, result) do
     resource = changeset.resource
 
-    case delete_document(resource, changeset) do
-      {:ok, _} ->
-        {:ok, result}
-
-      {:error, error} ->
-        # Log error but don't fail the database transaction
-        Logger.error(
-          "AshMeilisearch: Failed to delete search document for #{inspect(resource)}: #{inspect(error)}"
-        )
-
-        {:ok, result}
-    end
-  end
-
-  defp delete_document(resource, changeset) do
     case Map.get(changeset.context, :meilisearch_delete_id) do
       nil ->
         Logger.warning(
           "AshMeilisearch: No record ID captured for deletion from #{inspect(resource)}"
         )
 
-        {:error, :no_record_id}
-
       record_id ->
         index_name = AshMeilisearch.index_name(resource)
 
-        case AshMeilisearch.Client.delete_document(index_name, record_id) do
-          {:ok, task} ->
-            {:ok, task}
+        Task.start(fn ->
+          case AshMeilisearch.Client.delete_document(index_name, record_id) do
+            {:ok, _task} ->
+              :ok
 
-          {:error, reason} ->
-            Logger.error(
-              "AshMeilisearch: Failed to delete document #{record_id} from '#{index_name}': #{inspect(reason)}"
-            )
-
-            {:error, reason}
-        end
+            {:error, reason} ->
+              Logger.error(
+                "AshMeilisearch: Failed to delete document #{record_id} from '#{index_name}': #{inspect(reason)}"
+              )
+          end
+        end)
     end
+
+    {:ok, result}
   end
 end

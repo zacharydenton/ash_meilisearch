@@ -15,49 +15,33 @@ defmodule AshMeilisearch.Changes.UpsertSearchDocument do
   end
 
   defp upsert_search_document(changeset, result) do
-    # Handle both single records and lists of records
     records = List.wrap(result)
     resource = changeset.resource
 
-    case upsert_documents(resource, records) do
-      {:ok, _} ->
-        {:ok, result}
-
-      {:error, error} ->
-        # Log error but don't fail the database transaction
-        Logger.error(
-          "AshMeilisearch: Failed to upsert search documents for #{inspect(resource)}: #{inspect(error)}"
-        )
-
-        {:ok, result}
-    end
-  end
-
-  defp upsert_documents(resource, records) when is_list(records) do
+    # Build documents synchronously (needs record data from the transaction)
     search_documents =
       records
       |> Enum.map(&build_search_document(resource, &1))
       |> Enum.reject(&is_nil/1)
 
-    case search_documents do
-      [] ->
-        {:ok, :no_documents}
+    # Send to Meilisearch asynchronously so we don't block the action
+    if search_documents != [] do
+      index_name = AshMeilisearch.index_name(resource)
 
-      documents ->
-        index_name = AshMeilisearch.index_name(resource)
-
-        case AshMeilisearch.Client.add_documents(index_name, documents) do
-          {:ok, task} ->
-            {:ok, task}
+      Task.start(fn ->
+        case AshMeilisearch.Client.add_documents(index_name, search_documents) do
+          {:ok, _task} ->
+            :ok
 
           {:error, reason} ->
             Logger.error(
               "AshMeilisearch: Failed to add documents to '#{index_name}': #{inspect(reason)}"
             )
-
-            {:error, reason}
         end
+      end)
     end
+
+    {:ok, result}
   end
 
   defp build_search_document(resource, record) do

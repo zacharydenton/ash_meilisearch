@@ -151,8 +151,10 @@ defmodule AshMeilisearch.IndexManager do
     mismatches = find_setting_mismatches(current, expected)
 
     unless Enum.empty?(mismatches) do
+      mismatch_keys = Enum.map(mismatches, &elem(&1, 0))
+
       Logger.warning(
-        "AshMeilisearch: Index '#{index_name}' settings mismatch, updating: #{inspect(Keyword.keys(mismatches))}"
+        "AshMeilisearch: Index '#{index_name}' settings mismatch, updating: #{inspect(mismatch_keys)}"
       )
 
       update_index_settings(index_name, expected)
@@ -237,12 +239,21 @@ defmodule AshMeilisearch.IndexManager do
   defp settings_equivalent?(:searchableAttributes, ["*"], expected) when is_list(expected),
     do: false
 
+  # For maps, check that all expected keys match in current (ignore extra defaults from Meilisearch)
+  defp settings_equivalent?(_key, current, expected) when is_map(current) and is_map(expected) do
+    Enum.all?(expected, fn {k, v} -> Map.get(current, k) == v end)
+  end
+
   defp settings_equivalent?(_key, _current, _expected), do: false
 
   defp normalize_setting_value(value) when is_list(value) do
     value
-    |> Enum.map(&to_string/1)
+    |> Enum.map(&normalize_setting_value/1)
     |> Enum.sort()
+  end
+
+  defp normalize_setting_value(value) when is_map(value) do
+    Map.new(value, fn {k, v} -> {to_string(k), normalize_setting_value(v)} end)
   end
 
   defp normalize_setting_value(value) when is_binary(value), do: value
