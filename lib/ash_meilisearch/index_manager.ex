@@ -54,6 +54,7 @@ defmodule AshMeilisearch.IndexManager do
       stopWords: AshMeilisearch.Info.meilisearch_stop_words(resource),
       synonyms: AshMeilisearch.Info.meilisearch_synonyms(resource),
       typoTolerance: AshMeilisearch.Info.meilisearch_typo_tolerance(resource),
+      embedders: stringify_keys(AshMeilisearch.Info.meilisearch_embedders(resource)),
       primaryKey: AshMeilisearch.primary_key(resource)
     }
     |> Enum.reject(fn
@@ -260,6 +261,14 @@ defmodule AshMeilisearch.IndexManager do
   defp normalize_setting_value(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_setting_value(nil), do: nil
   defp normalize_setting_value(value), do: value
+
+  defp stringify_keys(map) when map == %{}, do: %{}
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {to_string(k), stringify_keys(v)} end)
+  end
+
+  defp stringify_keys(other), do: other
 
   defp update_index_settings(index_name, settings) do
     # Remove primaryKey from settings update (it's set during index creation)

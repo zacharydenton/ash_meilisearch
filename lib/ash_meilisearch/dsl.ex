@@ -101,6 +101,24 @@ defmodule AshMeilisearch.Dsl do
         Typo tolerance settings for the index. Passed directly to Meilisearch as `typoTolerance`.
         Example: `%{disableOnAttributes: ["code"], minWordSizeForTypos: %{oneTypo: 5, twoTypos: 9}}`
         """
+      ],
+      embedders: [
+        type: :map,
+        default: %{},
+        doc: """
+        Embedder configurations for vector search. Keys are embedder names, values are config maps.
+        For user-provided embeddings, set `source: "userProvided"` and `dimensions: N`.
+        Example: `%{"default" => %{source: "userProvided", dimensions: 384}}`
+        """
+      ],
+      embedding_function: [
+        type: {:or, [{:fun, 1}, nil]},
+        default: nil,
+        doc: """
+        A function that takes a record and returns a vector (list of floats) for embedding.
+        When set, the upsert hook will call this function to generate `_vectors` for documents.
+        Example: `&MyApp.ML.TextEmbedding.embed_scene/1`
+        """
       ]
     ]
   }

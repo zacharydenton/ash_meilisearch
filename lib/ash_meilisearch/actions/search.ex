@@ -71,7 +71,8 @@ defmodule AshMeilisearch.Actions.Search do
       limit: limit,
       offset: offset,
       matchingStrategy: "frequency",
-      attributesToRetrieve: ["*"]  # Get all fields from Meilisearch
+      # Get all fields from Meilisearch
+      attributesToRetrieve: ["*"]
     }
 
     search_opts =
@@ -125,7 +126,8 @@ defmodule AshMeilisearch.Actions.Search do
         # Each query should be a map with at least indexUid and q
         base_query = %{
           indexUid: index_name,
-          attributesToRetrieve: ["*"],  # Get all fields from Meilisearch
+          # Get all fields from Meilisearch
+          attributesToRetrieve: ["*"],
           showRankingScore: true
         }
 

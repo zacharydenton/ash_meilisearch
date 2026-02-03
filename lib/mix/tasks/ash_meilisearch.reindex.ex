@@ -136,6 +136,9 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
         Ash.read!(query)
       end
 
+    embedding_fn = AshMeilisearch.Info.meilisearch_embedding_function(resource_module)
+    embedders = AshMeilisearch.Info.meilisearch_embedders(resource_module)
+
     valid_documents =
       Enum.filter(page.results, fn record ->
         record.search_document not in [nil, %{}]
@@ -143,7 +146,10 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
     new_acc =
       if length(valid_documents) > 0 do
-        batch_documents = Enum.map(valid_documents, & &1.search_document)
+        batch_documents =
+          valid_documents
+          |> Enum.map(& &1.search_document)
+          |> maybe_attach_vectors(valid_documents, embedding_fn, embedders)
 
         case AshMeilisearch.add_documents(resource_module, batch_documents) do
           {:ok, _task} ->
@@ -168,5 +174,25 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
     else
       new_acc
     end
+  end
+
+  defp maybe_attach_vectors(documents, _records, nil, _embedders), do: documents
+
+  defp maybe_attach_vectors(documents, _records, _fn, embedders) when embedders == %{},
+    do: documents
+
+  defp maybe_attach_vectors(documents, records, embedding_fn, embedders) do
+    embedder_name = embedders |> Map.keys() |> List.first() |> to_string()
+
+    Enum.zip(documents, records)
+    |> Enum.map(fn {doc, record} ->
+      case embedding_fn.(record) do
+        vector when is_list(vector) ->
+          Map.put(doc, "_vectors", %{embedder_name => vector})
+
+        _ ->
+          doc
+      end
+    end)
   end
 end

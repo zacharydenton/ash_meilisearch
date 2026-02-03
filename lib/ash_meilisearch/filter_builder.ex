@@ -209,7 +209,9 @@ defmodule AshMeilisearch.FilterBuilder do
 
     # Skip if field is not filterable
     case field_name do
-      nil -> nil
+      nil ->
+        nil
+
       field_name ->
         values = extract_values(right)
 
@@ -234,7 +236,9 @@ defmodule AshMeilisearch.FilterBuilder do
     field_name = extract_field_name(left, resource)
 
     case field_name do
-      nil -> nil
+      nil ->
+        nil
+
       field_name ->
         value = format_value(right)
         ~s(#{field_name} #{operator} #{value})
@@ -246,7 +250,9 @@ defmodule AshMeilisearch.FilterBuilder do
     field_name = extract_field_name(left, resource)
 
     case field_name do
-      nil -> nil
+      nil ->
+        nil
+
       field_name ->
         value = format_value(right)
         ~s(#{field_name} #{operator} #{value})
@@ -258,7 +264,9 @@ defmodule AshMeilisearch.FilterBuilder do
     field_name = extract_field_name(left, resource)
 
     case field_name do
-      nil -> nil
+      nil ->
+        nil
+
       field_name ->
         if is_nil? do
           ~s(#{field_name} IS NULL)
@@ -269,20 +277,24 @@ defmodule AshMeilisearch.FilterBuilder do
   end
 
   # Extract field name from field reference and check if it's filterable
-  defp extract_field_name(%Ash.Query.Ref{
-         relationship_path: relationship_path,
-         attribute: attribute
-       }, resource) do
-    field_name = case {relationship_path, attribute} do
-      {[], %{name: name}} ->
-        to_string(name)
+  defp extract_field_name(
+         %Ash.Query.Ref{
+           relationship_path: relationship_path,
+           attribute: attribute
+         },
+         resource
+       ) do
+    field_name =
+      case {relationship_path, attribute} do
+        {[], %{name: name}} ->
+          to_string(name)
 
-      {[rel], %{name: name}} ->
-        "#{rel}.#{name}"
+        {[rel], %{name: name}} ->
+          "#{rel}.#{name}"
 
-      _ ->
-        "unknown_field"
-    end
+        _ ->
+          "unknown_field"
+      end
 
     # Check if the field is filterable in Meilisearch configuration
     if resource && is_field_filterable?(field_name, resource) do
