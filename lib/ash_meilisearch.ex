@@ -76,7 +76,7 @@ defmodule AshMeilisearch do
       "status = published"
   """
   def build_filter(%Ash.Query{} = query),
-    do: AshMeilisearch.FilterBuilder.build_filter(query.filter)
+    do: AshMeilisearch.FilterBuilder.build_filter(query.filter, query.resource)
 
   @doc """
   Build Meilisearch sort array from an Ash.Query.

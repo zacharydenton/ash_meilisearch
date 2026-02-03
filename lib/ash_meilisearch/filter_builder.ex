@@ -56,11 +56,18 @@ defmodule AshMeilisearch.FilterBuilder do
       iex> build_filter(ash_filter)
       "director IS NULL"
   """
+  def build_filter(nil, _resource), do: nil
+
+  def build_filter(%Ash.Filter{} = ash_filter, resource) do
+    # Handle Ash.Filter structs by converting to Meilisearch filter string
+    ash_filter_to_meilisearch(ash_filter, resource)
+  end
+
+  # Backward compatibility - if called without resource, use original behavior
   def build_filter(nil), do: nil
 
   def build_filter(%Ash.Filter{} = ash_filter) do
-    # Handle Ash.Filter structs by converting to Meilisearch filter string
-    ash_filter_to_meilisearch(ash_filter)
+    ash_filter_to_meilisearch(ash_filter, nil)
   end
 
   # Format values for Meilisearch filters
@@ -75,18 +82,18 @@ defmodule AshMeilisearch.FilterBuilder do
   defp escape_quotes(value), do: to_string(value)
 
   # Convert Ash.Filter struct to Meilisearch filter string
-  defp ash_filter_to_meilisearch(%Ash.Filter{expression: expression}) do
+  defp ash_filter_to_meilisearch(%Ash.Filter{expression: expression}, resource) do
     # Convert the expression directly rather than using list_predicates
     # which may not preserve NOT wrappers
-    convert_expression_to_meilisearch(expression)
+    convert_expression_to_meilisearch(expression, resource)
   end
 
   # Convert expression to Meilisearch filter string
-  defp convert_expression_to_meilisearch(expression) do
+  defp convert_expression_to_meilisearch(expression, resource) do
     case expression do
       %Ash.Query.BooleanExpression{op: :and, left: left, right: right} ->
-        left_result = convert_expression_to_meilisearch(left)
-        right_result = convert_expression_to_meilisearch(right)
+        left_result = convert_expression_to_meilisearch(left, resource)
+        right_result = convert_expression_to_meilisearch(right, resource)
 
         # Add parentheses around OR expressions when they're part of an AND
         left_formatted = if is_or_expression?(left), do: "(#{left_result})", else: left_result
@@ -95,8 +102,8 @@ defmodule AshMeilisearch.FilterBuilder do
         combine_conditions([left_formatted, right_formatted], " AND ")
 
       %Ash.Query.BooleanExpression{op: :or, left: left, right: right} ->
-        left_result = convert_expression_to_meilisearch(left)
-        right_result = convert_expression_to_meilisearch(right)
+        left_result = convert_expression_to_meilisearch(left, resource)
+        right_result = convert_expression_to_meilisearch(right, resource)
 
         # Add parentheses around AND expressions when they're part of an OR
         left_formatted = if is_and_expression?(left), do: "(#{left_result})", else: left_result
@@ -108,11 +115,11 @@ defmodule AshMeilisearch.FilterBuilder do
 
       # Handle NOT wrapper
       %Ash.Query.Not{expression: inner_expression} ->
-        handle_not_operator(inner_expression)
+        handle_not_operator(inner_expression, resource)
 
       # Handle direct operators
       predicate when is_struct(predicate) ->
-        convert_predicate_to_meilisearch(predicate)
+        convert_predicate_to_meilisearch(predicate, resource)
 
       unknown ->
         Logger.debug("AshMeilisearch.FilterBuilder: Unknown expression type: #{inspect(unknown)}")
@@ -140,35 +147,35 @@ defmodule AshMeilisearch.FilterBuilder do
     end
   end
 
-  # Convert individual predicate to Meilisearch condition  
-  defp convert_predicate_to_meilisearch(predicate) do
+  # Convert individual predicate to Meilisearch condition
+  defp convert_predicate_to_meilisearch(predicate, resource) do
     case predicate do
       %Ash.Query.Operator.In{left: left, right: right} ->
-        handle_in_operator(left, right)
+        handle_in_operator(left, right, resource)
 
       %Ash.Query.Operator.Eq{left: left, right: right} ->
-        handle_equality_operator(left, right, "=")
+        handle_equality_operator(left, right, "=", resource)
 
       %Ash.Query.Operator.NotEq{left: left, right: right} ->
-        handle_equality_operator(left, right, "!=")
+        handle_equality_operator(left, right, "!=", resource)
 
       %Ash.Query.Operator.GreaterThan{left: left, right: right} ->
-        handle_comparison_operator(left, right, ">")
+        handle_comparison_operator(left, right, ">", resource)
 
       %Ash.Query.Operator.GreaterThanOrEqual{left: left, right: right} ->
-        handle_comparison_operator(left, right, ">=")
+        handle_comparison_operator(left, right, ">=", resource)
 
       %Ash.Query.Operator.LessThan{left: left, right: right} ->
-        handle_comparison_operator(left, right, "<")
+        handle_comparison_operator(left, right, "<", resource)
 
       %Ash.Query.Operator.LessThanOrEqual{left: left, right: right} ->
-        handle_comparison_operator(left, right, "<=")
+        handle_comparison_operator(left, right, "<=", resource)
 
       %Ash.Query.Operator.IsNil{left: left, right: true} ->
-        handle_is_nil_operator(left, true)
+        handle_is_nil_operator(left, true, resource)
 
       %Ash.Query.Operator.IsNil{left: left, right: false} ->
-        handle_is_nil_operator(left, false)
+        handle_is_nil_operator(left, false, resource)
 
       unsupported ->
         Logger.debug(
@@ -180,11 +187,11 @@ defmodule AshMeilisearch.FilterBuilder do
   end
 
   # Handle NOT operator wrapper
-  defp handle_not_operator(inner_expression) do
+  defp handle_not_operator(inner_expression, resource) do
     case inner_expression do
       %Ash.Query.Operator.IsNil{left: left, right: true} ->
         # NOT is_nil means the field is not null
-        handle_is_nil_operator(left, false)
+        handle_is_nil_operator(left, false, resource)
 
       unsupported ->
         # Log unsupported NOT operations for debugging
@@ -197,56 +204,76 @@ defmodule AshMeilisearch.FilterBuilder do
   end
 
   # Handle the In operator
-  defp handle_in_operator(left, right) do
-    field_name = extract_field_name(left)
-    values = extract_values(right)
+  defp handle_in_operator(left, right, resource) do
+    field_name = extract_field_name(left, resource)
 
-    case values do
-      [] ->
-        nil
+    # Skip if field is not filterable
+    case field_name do
+      nil -> nil
+      field_name ->
+        values = extract_values(right)
 
-      [single] ->
-        ~s(#{field_name} = "#{escape_quotes(single)}")
+        case values do
+          [] ->
+            nil
 
-      multiple ->
-        conditions =
-          Enum.map(multiple, fn value -> ~s(#{field_name} = "#{escape_quotes(value)}") end)
+          [single] ->
+            ~s(#{field_name} = "#{escape_quotes(single)}")
 
-        "(#{Enum.join(conditions, " OR ")})"
+          multiple ->
+            conditions =
+              Enum.map(multiple, fn value -> ~s(#{field_name} = "#{escape_quotes(value)}") end)
+
+            "(#{Enum.join(conditions, " OR ")})"
+        end
     end
   end
 
-  # Handle equality and inequality operators  
-  defp handle_equality_operator(left, right, operator) do
-    field_name = extract_field_name(left)
-    value = format_value(right)
-    ~s(#{field_name} #{operator} #{value})
+  # Handle equality and inequality operators
+  defp handle_equality_operator(left, right, operator, resource) do
+    field_name = extract_field_name(left, resource)
+
+    case field_name do
+      nil -> nil
+      field_name ->
+        value = format_value(right)
+        ~s(#{field_name} #{operator} #{value})
+    end
   end
 
   # Handle comparison operators (>, <, >=, <=)
-  defp handle_comparison_operator(left, right, operator) do
-    field_name = extract_field_name(left)
-    value = format_value(right)
-    ~s(#{field_name} #{operator} #{value})
-  end
+  defp handle_comparison_operator(left, right, operator, resource) do
+    field_name = extract_field_name(left, resource)
 
-  # Handle IsNil operator
-  defp handle_is_nil_operator(left, is_nil?) do
-    field_name = extract_field_name(left)
-
-    if is_nil? do
-      ~s(#{field_name} IS NULL)
-    else
-      ~s(#{field_name} IS NOT NULL)
+    case field_name do
+      nil -> nil
+      field_name ->
+        value = format_value(right)
+        ~s(#{field_name} #{operator} #{value})
     end
   end
 
-  # Extract field name from field reference
+  # Handle IsNil operator
+  defp handle_is_nil_operator(left, is_nil?, resource) do
+    field_name = extract_field_name(left, resource)
+
+    case field_name do
+      nil -> nil
+      field_name ->
+        if is_nil? do
+          ~s(#{field_name} IS NULL)
+        else
+          ~s(#{field_name} IS NOT NULL)
+        end
+    end
+  end
+
+  # Extract field name from field reference and check if it's filterable
   defp extract_field_name(%Ash.Query.Ref{
          relationship_path: relationship_path,
          attribute: attribute
-       }) do
-    case {relationship_path, attribute} do
+       }, resource) do
+    field_name = case {relationship_path, attribute} do
       {[], %{name: name}} ->
         to_string(name)
 
@@ -256,10 +283,25 @@ defmodule AshMeilisearch.FilterBuilder do
       _ ->
         "unknown_field"
     end
+
+    # Check if the field is filterable in Meilisearch configuration
+    if resource && is_field_filterable?(field_name, resource) do
+      field_name
+    else
+      Logger.debug("AshMeilisearch.FilterBuilder: Skipping non-filterable field: #{field_name}")
+      nil
+    end
   end
 
-  defp extract_field_name(_other) do
-    "unknown_field"
+  defp extract_field_name(_other, _resource) do
+    Logger.debug("AshMeilisearch.FilterBuilder: Unable to extract field name")
+    nil
+  end
+
+  # Check if a field is configured as filterable in the resource
+  defp is_field_filterable?(field_name, resource) do
+    filterable_attrs = AshMeilisearch.Info.filterable_attributes(resource)
+    field_name in filterable_attrs
   end
 
   # Extract values from values reference
