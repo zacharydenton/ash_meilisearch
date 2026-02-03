@@ -50,9 +50,16 @@ defmodule AshMeilisearch.IndexManager do
       searchableAttributes: AshMeilisearch.Info.searchable_attributes(resource),
       filterableAttributes: AshMeilisearch.Info.filterable_attributes(resource),
       sortableAttributes: AshMeilisearch.Info.sortable_attributes(resource),
+      rankingRules: AshMeilisearch.Info.meilisearch_ranking_rules(resource),
+      stopWords: AshMeilisearch.Info.meilisearch_stop_words(resource),
+      synonyms: AshMeilisearch.Info.meilisearch_synonyms(resource),
       primaryKey: AshMeilisearch.primary_key(resource)
     }
-    |> Enum.reject(fn {_k, v} -> is_nil(v) || v == [] end)
+    |> Enum.reject(fn
+      {_k, v} when is_list(v) -> v == []
+      {_k, v} when is_map(v) -> v == %{}
+      {_k, v} -> is_nil(v)
+    end)
     |> Map.new()
   end
 
@@ -139,22 +146,15 @@ defmodule AshMeilisearch.IndexManager do
     end
   end
 
-  defp validate_settings_strict!(resource, index_name, current, expected) do
+  defp validate_settings_strict!(_resource, index_name, current, expected) do
     mismatches = find_setting_mismatches(current, expected)
 
     unless Enum.empty?(mismatches) do
-      error_msg = """
-      AshMeilisearch: Index '#{index_name}' for #{inspect(resource)} has incorrect settings.
+      Logger.warning(
+        "AshMeilisearch: Index '#{index_name}' settings mismatch, updating: #{inspect(Keyword.keys(mismatches))}"
+      )
 
-      Expected: #{inspect(expected)}
-      Current:  #{inspect(current)}
-      Mismatches: #{inspect(mismatches)}
-
-      In production, index settings must match the resource configuration exactly.
-      Please update the index settings in Meilisearch or adjust the resource configuration.
-      """
-
-      raise error_msg
+      update_index_settings(index_name, expected)
     end
 
     :ok

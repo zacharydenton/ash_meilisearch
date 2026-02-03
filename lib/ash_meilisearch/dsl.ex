@@ -69,6 +69,30 @@ defmodule AshMeilisearch.Dsl do
         List of attributes and relationships that should be sortable in Meilisearch.
         Supports simple attributes (`:title`) and relationship attributes (`studio: [:name]`).
         """
+      ],
+      ranking_rules: [
+        type: {:list, :string},
+        default: [],
+        doc: """
+        Custom ranking rules for the index. When empty, Meilisearch defaults are used.
+        Example: `["words", "attribute", "proximity", "exactness", "typo", "sort"]`
+        """
+      ],
+      stop_words: [
+        type: {:list, :string},
+        default: [],
+        doc: """
+        Words that are ignored during search. Useful for removing noise from common words.
+        Example: `["the", "a", "an", "in", "on", "at"]`
+        """
+      ],
+      synonyms: [
+        type: :map,
+        default: %{},
+        doc: """
+        Synonym mappings for the index. Keys are words, values are lists of synonyms.
+        Example: `%{"film" => ["movie", "picture"], "tv" => ["television"]}`
+        """
       ]
     ]
   }

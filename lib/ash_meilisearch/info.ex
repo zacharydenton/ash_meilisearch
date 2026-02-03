@@ -39,6 +39,18 @@ defmodule AshMeilisearch.Info do
     Spark.Dsl.Extension.get_opt(resource, [:meilisearch], :sortable_attributes, [])
   end
 
+  def meilisearch_ranking_rules(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:meilisearch], :ranking_rules, [])
+  end
+
+  def meilisearch_stop_words(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:meilisearch], :stop_words, [])
+  end
+
+  def meilisearch_synonyms(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:meilisearch], :synonyms, %{})
+  end
+
   @doc """
   Get searchable attributes from a resource based on meilisearch configuration.
 

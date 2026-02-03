@@ -130,7 +130,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
           resource_module
           |> Ash.Query.new()
           |> Ash.Query.load(:search_document)
-          |> Ash.Query.sort(id: :asc)
+          |> Ash.Query.sort(id: :desc)
           |> Ash.Query.page(limit: batch_size)
 
         Ash.read!(query)

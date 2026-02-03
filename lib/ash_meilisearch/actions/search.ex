@@ -70,6 +70,7 @@ defmodule AshMeilisearch.Actions.Search do
     search_opts = %{
       limit: limit,
       offset: offset,
+      matchingStrategy: "frequency",
       attributesToRetrieve: ["*"]  # Get all fields from Meilisearch
     }
 
