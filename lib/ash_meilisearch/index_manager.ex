@@ -53,6 +53,7 @@ defmodule AshMeilisearch.IndexManager do
       rankingRules: AshMeilisearch.Info.meilisearch_ranking_rules(resource),
       stopWords: AshMeilisearch.Info.meilisearch_stop_words(resource),
       synonyms: AshMeilisearch.Info.meilisearch_synonyms(resource),
+      typoTolerance: AshMeilisearch.Info.meilisearch_typo_tolerance(resource),
       primaryKey: AshMeilisearch.primary_key(resource)
     }
     |> Enum.reject(fn

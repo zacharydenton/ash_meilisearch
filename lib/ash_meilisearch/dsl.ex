@@ -93,6 +93,14 @@ defmodule AshMeilisearch.Dsl do
         Synonym mappings for the index. Keys are words, values are lists of synonyms.
         Example: `%{"film" => ["movie", "picture"], "tv" => ["television"]}`
         """
+      ],
+      typo_tolerance: [
+        type: :map,
+        default: %{},
+        doc: """
+        Typo tolerance settings for the index. Passed directly to Meilisearch as `typoTolerance`.
+        Example: `%{disableOnAttributes: ["code"], minWordSizeForTypos: %{oneTypo: 5, twoTypos: 9}}`
+        """
       ]
     ]
   }

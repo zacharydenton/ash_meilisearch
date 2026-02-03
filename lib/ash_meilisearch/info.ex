@@ -51,6 +51,10 @@ defmodule AshMeilisearch.Info do
     Spark.Dsl.Extension.get_opt(resource, [:meilisearch], :synonyms, %{})
   end
 
+  def meilisearch_typo_tolerance(resource) do
+    Spark.Dsl.Extension.get_opt(resource, [:meilisearch], :typo_tolerance, %{})
+  end
+
   @doc """
   Get searchable attributes from a resource based on meilisearch configuration.
 
