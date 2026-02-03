@@ -61,9 +61,23 @@ defmodule AshMeilisearch.Changes.UpsertSearchDocument do
   end
 
   defp build_search_document(resource, record) do
-    # Get the meilisearch fields configuration for this resource
     meilisearch_fields = AshMeilisearch.Info.get_meilisearch_fields(resource)
     primary_key = AshMeilisearch.primary_key(resource)
+
+    # Load any relationships needed for the search document
+    relationship_loads =
+      meilisearch_fields
+      |> Enum.flat_map(fn
+        {{rel_name, related_fields}, :relationship, _opts} -> [{rel_name, related_fields}]
+        _ -> []
+      end)
+
+    record =
+      if relationship_loads != [] do
+        Ash.load!(record, relationship_loads)
+      else
+        record
+      end
 
     AshMeilisearch.Calculations.SearchDocument.format_document(
       record,

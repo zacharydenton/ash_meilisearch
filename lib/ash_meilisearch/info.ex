@@ -117,19 +117,43 @@ defmodule AshMeilisearch.Info do
     filterable = meilisearch_filterable_attributes(resource)
     sortable = meilisearch_sortable_attributes(resource)
 
-    # Get all unique attributes from all lists
-    all_attributes =
+    # Merge relationship specs that appear across lists
+    all_specs =
       (searchable ++ filterable ++ sortable)
-      |> Enum.uniq()
+      |> merge_field_specs()
 
-    # Map each attribute to the expected tuple format
-    Enum.map(all_attributes, fn attr_name ->
-      opts = []
-      opts = if attr_name in searchable, do: [{:searchable, true} | opts], else: opts
-      opts = if attr_name in filterable, do: [{:filterable, true} | opts], else: opts
-      opts = if attr_name in sortable, do: [{:sortable, true} | opts], else: opts
+    relationships =
+      resource
+      |> Ash.Resource.Info.relationships()
+      |> MapSet.new(& &1.name)
 
-      {attr_name, :attribute, opts}
+    Enum.map(all_specs, fn
+      {rel_name, related_fields} when is_atom(rel_name) and is_list(related_fields) ->
+        field_type = if MapSet.member?(relationships, rel_name), do: :relationship, else: :unknown
+        {{rel_name, related_fields}, field_type, []}
+
+      field_name when is_atom(field_name) ->
+        opts = []
+        opts = if field_name in searchable, do: [{:searchable, true} | opts], else: opts
+        opts = if field_name in filterable, do: [{:filterable, true} | opts], else: opts
+        opts = if field_name in sortable, do: [{:sortable, true} | opts], else: opts
+        {field_name, :attribute, opts}
+    end)
+  end
+
+  defp merge_field_specs(field_specs) do
+    field_specs
+    |> Enum.group_by(fn
+      {rel_name, _fields} -> {:relationship, rel_name}
+      field_name -> {:simple, field_name}
+    end)
+    |> Enum.map(fn
+      {{:relationship, rel_name}, specs} ->
+        all_fields = specs |> Enum.flat_map(fn {_, fields} -> fields end) |> Enum.uniq()
+        {rel_name, all_fields}
+
+      {{:simple, field_name}, _specs} ->
+        field_name
     end)
   end
 
