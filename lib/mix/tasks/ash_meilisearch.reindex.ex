@@ -13,7 +13,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
     * `--batch-size` - Number of records per batch (default: 100)
     * `--help` - Show help message
 
-  The task uses keyset pagination for memory-efficient processing of large datasets.
+  The task uses Ash.stream! for memory-efficient processing of large datasets.
   """
 
   use Mix.Task
@@ -116,100 +116,64 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
     """)
   end
 
-  defp process_batches(
-         resource_module,
-         batch_size,
-         total_count,
-         page \\ nil,
-         acc \\ %{successful: 0, failed: 0, failed_ids: [], start_time: nil, last_pct: 0}
-       ) do
-    acc =
-      if acc.start_time do
-        acc
-      else
-        Map.put(acc, :start_time, System.monotonic_time(:millisecond))
-      end
-
-    db_start = System.monotonic_time(:millisecond)
-    page =
-      if page do
-        Ash.page!(page, :next)
-      else
-        query =
-          resource_module
-          |> Ash.Query.new()
-          |> Ash.Query.select([:id])
-          |> Ash.Query.load(:search_document)
-          |> Ash.Query.sort(id: :asc)
-          |> Ash.Query.page(limit: batch_size)
-
-        Ash.read!(query)
-      end
-    db_ms = System.monotonic_time(:millisecond) - db_start
-
+  defp process_batches(resource_module, batch_size, total_count) do
     embedding_fn = AshMeilisearch.Info.meilisearch_embedding_function(resource_module)
     embedders = AshMeilisearch.Info.meilisearch_embedders(resource_module)
+    start_time = System.monotonic_time(:millisecond)
 
-    valid_documents =
-      Enum.filter(page.results, fn record ->
-        record.search_document not in [nil, %{}]
-      end)
+    resource_module
+    |> Ash.Query.new()
+    |> Ash.Query.select([:id])
+    |> Ash.Query.load(:search_document)
+    |> Ash.stream!(batch_size: batch_size)
+    |> Stream.chunk_every(batch_size)
+    |> Enum.reduce(%{successful: 0, failed: 0, failed_ids: [], last_pct: 0, batch_start: System.monotonic_time(:millisecond), acc_embed_ms: 0, acc_meili_ms: 0}, fn batch, acc ->
+      valid_records = Enum.reject(batch, &(&1.search_document in [nil, %{}]))
 
-    new_acc =
-      if length(valid_documents) > 0 do
+      if valid_records == [] do
+        acc
+      else
         embed_start = System.monotonic_time(:millisecond)
-        batch_documents =
-          valid_documents
+        docs =
+          valid_records
           |> Enum.map(& &1.search_document)
           |> maybe_attach_vectors(embedding_fn, embedders)
         embed_ms = System.monotonic_time(:millisecond) - embed_start
 
         meili_start = System.monotonic_time(:millisecond)
-        case AshMeilisearch.add_documents(resource_module, batch_documents) do
+        result = AshMeilisearch.add_documents(resource_module, docs)
+        meili_ms = System.monotonic_time(:millisecond) - meili_start
+
+        acc = %{acc | acc_embed_ms: acc.acc_embed_ms + embed_ms, acc_meili_ms: acc.acc_meili_ms + meili_ms}
+
+        case result do
           {:ok, _task} ->
-            meili_ms = System.monotonic_time(:millisecond) - meili_start
-            new_successful = acc.successful + length(valid_documents)
+            new_successful = acc.successful + length(valid_records)
             current_pct = div(new_successful * 1000, total_count)
 
-            new_acc =
-              if current_pct > acc.last_pct do
-                elapsed_ms = System.monotonic_time(:millisecond) - acc.start_time
-                elapsed_sec = max(elapsed_ms / 1000, 0.1)
-                rate = Float.round(new_successful / elapsed_sec, 1)
-                pct_display = Float.round(current_pct / 10, 1)
-                Mix.shell().info("  #{pct_display}% - #{new_successful}/#{total_count} (#{rate} rec/s) [db:#{db_ms}ms embed:#{embed_ms}ms meili:#{meili_ms}ms]")
-                %{acc | successful: new_successful, last_pct: current_pct}
-              else
-                %{acc | successful: new_successful}
-              end
-
-            new_acc
+            if current_pct > acc.last_pct do
+              db_ms = System.monotonic_time(:millisecond) - acc.batch_start - acc.acc_embed_ms - acc.acc_meili_ms
+              elapsed_ms = System.monotonic_time(:millisecond) - start_time
+              elapsed_sec = max(elapsed_ms / 1000, 0.1)
+              rate = Float.round(new_successful / elapsed_sec, 1)
+              pct_display = Float.round(current_pct / 10, 1)
+              Mix.shell().info("  #{pct_display}% - #{new_successful}/#{total_count} (#{rate} rec/s) [db:#{db_ms}ms embed:#{acc.acc_embed_ms}ms meili:#{acc.acc_meili_ms}ms]")
+              %{acc | successful: new_successful, last_pct: current_pct, batch_start: System.monotonic_time(:millisecond), acc_embed_ms: 0, acc_meili_ms: 0}
+            else
+              %{acc | successful: new_successful}
+            end
 
           {:error, error} ->
             Mix.shell().error("Batch failed: #{inspect(error)}")
-            failed_ids = Enum.map(page.results, & &1.id)
-
-            %{
-              acc
-              | failed: acc.failed + length(page.results),
-                failed_ids: acc.failed_ids ++ failed_ids
-            }
+            failed_ids = Enum.map(batch, & &1.id)
+            %{acc | failed: acc.failed + length(batch), failed_ids: acc.failed_ids ++ failed_ids}
         end
-      else
-        acc
       end
-
-    if page.more? do
-      process_batches(resource_module, batch_size, total_count, page, new_acc)
-    else
-      new_acc
-    end
+    end)
   end
 
   defp maybe_attach_vectors(documents, nil, _embedders), do: documents
-
-  defp maybe_attach_vectors(documents, _fn, embedders) when embedders == %{},
-    do: documents
+  defp maybe_attach_vectors(documents, _fn, embedders) when embedders == %{}, do: documents
 
   defp maybe_attach_vectors(documents, embedding_fn, embedders) do
     embedder_name = embedders |> Map.keys() |> List.first() |> to_string()
