@@ -129,7 +129,6 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
     resource_module
     |> Ash.Query.new()
-    |> Ash.Query.select([:id])
     |> Ash.Query.load(:search_document)
     |> Ash.stream!(batch_size: batch_size)
     |> Stream.chunk_every(batch_size)
