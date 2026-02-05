@@ -55,7 +55,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
     Mix.shell().info("Processing #{total_count} records in batches of #{batch_size}")
 
     start_time = System.monotonic_time(:millisecond)
-    final_stats = process_batches(resource_module, batch_size)
+    final_stats = process_batches(resource_module, batch_size, total_count)
     elapsed_seconds = div(System.monotonic_time(:millisecond) - start_time, 1000)
 
     records_per_second =
@@ -119,9 +119,17 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
   defp process_batches(
          resource_module,
          batch_size,
+         total_count,
          page \\ nil,
-         acc \\ %{successful: 0, failed: 0, failed_ids: []}
+         acc \\ %{successful: 0, failed: 0, failed_ids: [], start_time: nil, last_pct: 0}
        ) do
+    acc =
+      if acc.start_time do
+        acc
+      else
+        Map.put(acc, :start_time, System.monotonic_time(:millisecond))
+      end
+
     page =
       if page do
         Ash.page!(page, :next)
@@ -130,7 +138,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
           resource_module
           |> Ash.Query.new()
           |> Ash.Query.load(:search_document)
-          |> Ash.Query.sort(id: :desc)
+          |> Ash.Query.sort(id: :asc)
           |> Ash.Query.page(limit: batch_size)
 
         Ash.read!(query)
@@ -153,7 +161,21 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
         case AshMeilisearch.add_documents(resource_module, batch_documents) do
           {:ok, _task} ->
-            %{acc | successful: acc.successful + length(valid_documents)}
+            new_successful = acc.successful + length(valid_documents)
+            current_pct = div(new_successful * 100, total_count)
+
+            new_acc =
+              if current_pct > acc.last_pct do
+                elapsed_ms = System.monotonic_time(:millisecond) - acc.start_time
+                elapsed_sec = max(elapsed_ms / 1000, 0.1)
+                rate = Float.round(new_successful / elapsed_sec, 1)
+                Mix.shell().info("  #{current_pct}% - #{new_successful}/#{total_count} (#{rate} records/sec)")
+                %{acc | successful: new_successful, last_pct: current_pct}
+              else
+                %{acc | successful: new_successful}
+              end
+
+            new_acc
 
           {:error, error} ->
             Mix.shell().error("Batch failed: #{inspect(error)}")
@@ -170,7 +192,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
       end
 
     if page.more? do
-      process_batches(resource_module, batch_size, page, new_acc)
+      process_batches(resource_module, batch_size, total_count, page, new_acc)
     else
       new_acc
     end
@@ -184,14 +206,28 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
   defp maybe_attach_vectors(documents, records, embedding_fn, embedders) do
     embedder_name = embedders |> Map.keys() |> List.first() |> to_string()
 
-    Enum.zip(documents, records)
-    |> Enum.map(fn {doc, record} ->
-      case embedding_fn.(record) do
-        vector when is_list(vector) ->
-          Map.put(doc, "_vectors", %{embedder_name => vector})
+    # Try batch call first (passing list of records), fall back to sequential
+    vectors =
+      case embedding_fn.(records) do
+        results when is_list(results) and length(results) == length(records) ->
+          results
 
         _ ->
-          doc
+          # Fall back to sequential if batch didn't work
+          Enum.map(records, fn record ->
+            case embedding_fn.(record) do
+              vector when is_list(vector) -> vector
+              _ -> nil
+            end
+          end)
+      end
+
+    Enum.zip(documents, vectors)
+    |> Enum.map(fn {doc, vector} ->
+      if is_list(vector) and length(vector) > 0 do
+        Map.put(doc, "_vectors", %{embedder_name => vector})
+      else
+        doc
       end
     end)
   end
