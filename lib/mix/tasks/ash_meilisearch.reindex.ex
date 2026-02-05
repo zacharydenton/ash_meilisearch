@@ -11,6 +11,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
   ## Options
 
     * `--batch-size` - Number of records per batch (default: 100)
+    * `--no-embeddings` - Skip embedding generation
     * `--help` - Show help message
 
   The task uses Ash.stream! for memory-efficient processing of large datasets.
@@ -27,7 +28,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
     {options, args, _} =
       OptionParser.parse(args,
-        switches: [batch_size: :integer, help: :boolean],
+        switches: [batch_size: :integer, embeddings: :boolean, help: :boolean],
         aliases: [b: :batch_size, h: :help]
       )
 
@@ -54,8 +55,10 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
     Mix.shell().info("Processing #{total_count} records in batches of #{batch_size}")
 
+    skip_embeddings = options[:embeddings] == false
+
     start_time = System.monotonic_time(:millisecond)
-    final_stats = process_batches(resource_module, batch_size, total_count)
+    final_stats = process_batches(resource_module, batch_size, total_count, skip_embeddings)
     elapsed_seconds = div(System.monotonic_time(:millisecond) - start_time, 1000)
 
     records_per_second =
@@ -111,13 +114,16 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
       ResourceModule    The Ash resource module to reindex (e.g., MyApp.Blog.Post)
 
     Options:
-      -b, --batch-size  Number of records per batch (default: 100)
-      -h, --help        Show this help message
+      -b, --batch-size    Number of records per batch (default: 100)
+          --no-embeddings Skip embedding generation
+      -h, --help          Show this help message
     """)
   end
 
-  defp process_batches(resource_module, batch_size, total_count) do
-    embedding_fn = AshMeilisearch.Info.meilisearch_embedding_function(resource_module)
+  defp process_batches(resource_module, batch_size, total_count, skip_embeddings) do
+    embedding_fn =
+      if skip_embeddings, do: nil, else: AshMeilisearch.Info.meilisearch_embedding_function(resource_module)
+
     embedders = AshMeilisearch.Info.meilisearch_embedders(resource_module)
     start_time = System.monotonic_time(:millisecond)
 
