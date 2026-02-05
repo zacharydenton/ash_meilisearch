@@ -130,6 +130,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
         Map.put(acc, :start_time, System.monotonic_time(:millisecond))
       end
 
+    db_start = System.monotonic_time(:millisecond)
     page =
       if page do
         Ash.page!(page, :next)
@@ -144,6 +145,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
         Ash.read!(query)
       end
+    db_ms = System.monotonic_time(:millisecond) - db_start
 
     embedding_fn = AshMeilisearch.Info.meilisearch_embedding_function(resource_module)
     embedders = AshMeilisearch.Info.meilisearch_embedders(resource_module)
@@ -155,13 +157,17 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
 
     new_acc =
       if length(valid_documents) > 0 do
+        embed_start = System.monotonic_time(:millisecond)
         batch_documents =
           valid_documents
           |> Enum.map(& &1.search_document)
           |> maybe_attach_vectors(embedding_fn, embedders)
+        embed_ms = System.monotonic_time(:millisecond) - embed_start
 
+        meili_start = System.monotonic_time(:millisecond)
         case AshMeilisearch.add_documents(resource_module, batch_documents) do
           {:ok, _task} ->
+            meili_ms = System.monotonic_time(:millisecond) - meili_start
             new_successful = acc.successful + length(valid_documents)
             current_pct = div(new_successful * 1000, total_count)
 
@@ -171,7 +177,7 @@ defmodule Mix.Tasks.AshMeilisearch.Reindex do
                 elapsed_sec = max(elapsed_ms / 1000, 0.1)
                 rate = Float.round(new_successful / elapsed_sec, 1)
                 pct_display = Float.round(current_pct / 10, 1)
-                Mix.shell().info("  #{pct_display}% - #{new_successful}/#{total_count} (#{rate} records/sec)")
+                Mix.shell().info("  #{pct_display}% - #{new_successful}/#{total_count} (#{rate} rec/s) [db:#{db_ms}ms embed:#{embed_ms}ms meili:#{meili_ms}ms]")
                 %{acc | successful: new_successful, last_pct: current_pct}
               else
                 %{acc | successful: new_successful}
