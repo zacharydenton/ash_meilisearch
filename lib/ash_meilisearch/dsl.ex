@@ -87,7 +87,7 @@ defmodule AshMeilisearch.Dsl do
         """
       ],
       synonyms: [
-        type: :map,
+        type: {:map, :string, {:list, :string}},
         default: %{},
         doc: """
         Synonym mappings for the index. Keys are words, values are lists of synonyms.
